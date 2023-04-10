@@ -32,7 +32,9 @@ Token Bucket is an algorithm that you can use to implement rate limiting. In sho
 ![-viber-2022-01-07-18-44-42-191](https://user-images.githubusercontent.com/122011790/231000651-c35c969b-ca62-4bed-afdb-f7e7cfa7204d.png)
 
 Bucket: As you can see, he has a fixed volume of tokens (if you set 1000 tokens into our bucket, this is the maximum value of volume).  
+
 Refiller: Regularly fills missing tokens based on bandwidth management to Bucket (calling every time before Consume).  
+
 Consume: Takes away tokens from our Bucket (take away 1 token or many tokens -- usually it depends on the weight of calling consume method, it is a customizable and flexible variable, but in 99% of cases, we need to consume only one token).  
 
 Below, you can see an example of a refiller working with Bandwidth management to refresh tokens every minute:
@@ -42,14 +44,15 @@ Below, you can see an example of a refiller working with Bandwidth management to
 Consume (as action) takes away Tokens from Bucket.
 
 ### Buket Size
-The bucket is needed for storing a current count of Tokens, maximum possible count of tokens, and refresh time to generate a new token.
+The bucket is needed for storing a current count of Tokens, maximum possible count of tokens, and refresh time to generate a new token.  
 The Token Bucket algorithm has fixed memory for storing Bucket, and it consists of the following variables:
-The volume of Bucket (maximum possible count of tokens) - 8 bytes
-The current count of tokens in a bucket - 8 bytes
-The count of nanoseconds for generating a new token - 8 bytes
-The header of the object: 16 bytes
+1. The volume of Bucket (maximum possible count of tokens) - 8 bytes
+2. The current count of tokens in a bucket - 8 bytes
+3. The count of nanoseconds for generating a new token - 8 bytes
+4. The header of the object: 16 bytes  
 
-In total: 40 bytes
+In total: **40 bytes**
+
 For example, in one gigabyte, we can store 25 million buckets. It’s very important to know because, usually, we store information about our buckets in caches and consequently into RAM (Random Access Memory).
 
 ## Bucket4J
@@ -86,7 +89,7 @@ public class Example {
    
 ```
 ## Manage Collection of bukets 
-now we want  to create buket for each user based on ad identifer:
+now we want  to create buket for each user based on an identifer:
 so we can do that :
 ```java
  class UsersRateLimiter {
@@ -94,7 +97,7 @@ so we can do that :
    //code
 }
 ```
-so each user will have his own buket , and we use ConcurrentHashMap is a thread-safe implementation of the Map interface in Java, which means multiple threads can access it simultaneously without any synchronization issues.
+so each user will have his own buket , ConcurrentHashMap is a thread-safe implementation of the Map interface in Java, which means multiple threads can access it simultaneously without any synchronization issues.
 #### at this point we need to write the code that manage  cach entries by ourself
    - we need to write entry into our cache 
    - remove entry  from cache 
@@ -177,3 +180,42 @@ public class CalculationController {
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).build();
     }
  ```
+for now, if we want to apply RateLimiter behavior, we need first to  inject RateLimiter and start applying our logic,so if we applay rate behaior to 100 methods we need to rewrite this code.  
+
+**Can we go further from this point? yes we can , welcome to aspect oriented programming.**
+
+## Aspect Oriented Programming
+Aspect-oriented programming is a technique for building common, reusable routines that can be applied **applicationwide**. During development this facilitates **separation of core application logic and common, repeatable tasks** (input validation, logging, error handling, etc.) and Spring Framework support this techinque.
+
+### Spring AOP
+   AOP is one of the main components in the Spring framework, it provides declarative services for us, such as declarative transaction management (the famous @Transactional annotation). Moreover, it offers us the ability to implement custom Aspects and utilize the power of AOP in our applications.
+
+ ## implementation using Aop example  
+```java
+   @Aspect
+   @Component
+   public class RateLimiterAspect {
+       @Autowired
+       RateLimiter rateLimiter;
+       //we just need to add this annotaion "UserRateLimiter" before any method to applay  rateLimiter behavior
+       @Before("@annotation(UserRateLimiter)")
+       public void checkRetailerRateLimiter(JoinPoint joinPoint) {
+           logger.info(LocalDateTime.now().toString());
+           var data =(RectangleDimensionsV1) joinPoint.getArgs()[0];
+           Bucket bucket1 = rateLimiter.resolveBucket(data.getId());
+           if (!bucket1.tryConsume(1)) {
+               throw new RuntimeException("Too many");
+           }
+       }
+   }
+   ///
+   @RestController
+   public class CalculationController {
+    
+    @PostMapping(value = "/api/v1/area/rectangle")
+    @UserRateLimiter
+    public ResponseEntity<AreaV1> rectangle(@RequestBody Dimensions dimensions) {
+         return ResponseEntity.ok(new Area("rectangle", dimensions.getLength() * dimensions.getWidth()));
+    }
+ ```
+```
