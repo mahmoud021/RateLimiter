@@ -85,3 +85,95 @@ public class Example {
    }
    
 ```
+## Manage Collection of bukets 
+now we want  to create buket for each user based on ad identifer:
+so we can do that :
+```java
+ class UsersRateLimiter {
+   ConcurrentHashMap<String, Buket> usersBuketsCache = new ConcurrentHashMap<String, Buket>();
+   //code
+}
+```
+so each user will have his own buket , and we use ConcurrentHashMap is a thread-safe implementation of the Map interface in Java, which means multiple threads can access it simultaneously without any synchronization issues.
+#### at this point we need to write the code that manage  cach entries by ourself
+   - we need to write entry into our cache 
+   - remove entry  from cache 
+   - the most important thing we need to  remove the entry  from our cache if no one use this entry
+   - clean our cache  peroidcally to reduce its size.
+
+can we go further from this point? yes we can , welcome to caffeine
+
+## caffeine
+Caffeine is a high performance Java caching library providing a near optimal hit rate.
+
+A Cache is similar to ConcurrentMap, but not quite the same. The most fundamental difference is that a ConcurrentMap persists all elements that are added to it until they are explicitly removed. A Cache on the other hand is generally configured to evict entries automatically, in order to constrain its memory footprint.
+### Eviction types of Values
+Caffeine has three strategies for value eviction: size-based, time-based, and reference-based.
+- Size-Based Eviction
+This type of eviction assumes that eviction occurs when the configured size limit of the cache is exceeded.
+
+- Time-Based Eviction
+This eviction strategy is based on the expiration time of the entry and has three types:
+    - Expire after access — entry is expired after period is passed since the last read or write occurs
+    - Expire after write — entry is expired after period is passed since the last write occurs
+    - Custom policy — an expiration time is calculated for each entry individually by the Expiry implementation
+
+- Reference-based
+  We can configure our cache to allow garbage-collection of cache keys and/or values.  
+  Caffeine allows you to set up your cache to allow the garbage collection of entries, by using weak references for keys or values, and by using soft references for values.  
+
+### example  
+```java
+   Cache<Key, Graph> cache = Caffeine.newBuilder()
+    .expireAfterWrite(10, TimeUnit.MINUTES)
+    .maximumSize(10_000)
+    .build();
+   // Lookup an entry, or null if not found
+   Graph graph = cache.getIfPresent(key);
+   // Insert or update an entry
+   cache.put(key, graph);
+   // Remove an entry
+   cache.invalidate(key);
+```
+
+ #implementation example  
+ now with Buket4j and caffeine we can build an efficient Rate Limiter
+ ```java
+@Service
+public class RateLimiter {
+    //CaffeineProxyManager : is a class that provide an an integaraion between buket4j and caffeine
+    
+    @Autowired
+    CaffeineProxyManager<String> caffeineProxyManager;
+
+    public Bucket resolveBucket(String key) {
+        Supplier<BucketConfiguration> configSupplier = getConfigSupplierForUser(key);
+        
+        //create buket is is not exist
+        return caffeineProxyManager.builder().build(key, configSupplier);
+    }
+
+    private Supplier<BucketConfiguration> getConfigSupplierForUser(String userId) {
+        //Buket Configuration
+        Refill refill = Refill.intervally(5, Duration.ofMinutes(1));
+        Bandwidth limit = Bandwidth.classic(5, refill);
+        return () -> (BucketConfiguration.builder().addLimit(limit).build());
+    }
+}
+//now we can use RateLimiter at any other classes by inject it
+@RestController
+public class CalculationController {
+   
+    @Autowired
+    RateLimiter rateLimiter;
+    
+    @PostMapping(value = "/api/v1/area/rectangle")
+    public ResponseEntity<AreaV1> rectangle(@RequestBody Dimensions dimensions) {
+        logger.info(LocalDateTime.now().toString());
+        Bucket bucket1 = rateLimiter.resolveBucket(dimensions.getId());
+        if (bucket1.tryConsume(1)) {
+            return ResponseEntity.ok(new Area("rectangle", dimensions.getLength() * dimensions.getWidth()));
+        }
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).build();
+    }
+ ```
