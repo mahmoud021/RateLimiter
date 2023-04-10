@@ -39,4 +39,49 @@ Below, you can see an example of a refiller working with Bandwidth management to
 
 ![refill](https://user-images.githubusercontent.com/122011790/231002444-9d2729dd-1ad2-498e-b277-c332c7778315.jpg)
 
+Consume (as action) takes away Tokens from Bucket.
 
+### Buket Size
+The bucket is needed for storing a current count of Tokens, maximum possible count of tokens, and refresh time to generate a new token.
+The Token Bucket algorithm has fixed memory for storing Bucket, and it consists of the following variables:
+The volume of Bucket (maximum possible count of tokens) - 8 bytes
+The current count of tokens in a bucket - 8 bytes
+The count of nanoseconds for generating a new token - 8 bytes
+The header of the object: 16 bytes
+
+In total: 40 bytes
+For example, in one gigabyte, we can store 25 million buckets. It’s very important to know because, usually, we store information about our buckets in caches and consequently into RAM (Random Access Memory).
+
+## Bucket4J
+Bucket4j is the most popular library in Java-World for realizing rate-limiting features ,Bucket4J is a Java rate-limiting library based on a token-bucket algorithm.
+### example
+
+```java
+public class Example {
+
+   public static void main(String args[]) {
+
+       //Create the Bandwidth to set the rule - one token per minute
+       Bandwidth oneCosumePerMinuteLimit = Bandwidth.simple(1, Duration.ofMinutes(1));
+
+       //Create the Bucket and set the Bandwidth which we created above
+       Bucket bucket = Bucket.builder()
+                               .addLimit(oneCosumePerMinuteLimit)
+                               .build();
+
+       //Call method tryConsume to set count of Tokens to take from the Bucket,
+       //returns boolean, if true - consume successful and the Bucket had enough Tokens inside Bucket to execute method tryConsume
+       System.out.println(bucket.tryConsume(1)); //return true
+
+       //Call method tryConsumeAndReturnRemaining and set count of Tokens to take from the Bucket
+       //Returns ConsumptionProbe, which include much more information than tryConsume, such as the
+       //isConsumed - is method consume successful performed or not, if true - is successful
+       //getRemainingTokens - count of remaining Tokens
+       //getNanosToWaitForRefill - Time in nanoseconds to refill Tokens in our Bucket
+       ConsumptionProbe consumptionProbe = bucket.tryConsumeAndReturnRemaining(1);
+       System.out.println(consumptionProbe.isConsumed()); //return false since we have already called method tryConsume, but Bandwidth has  a limit with rule - one token per one minute
+       System.out.println(consumptionProbe.getRemainingTokens()); //return 0, since we have already consumed all of the Tokens
+       System.out.println(consumptionProbe.getNanosToWaitForRefill()); //Return around 60000000000 nanoseconds
+   }
+   
+```
